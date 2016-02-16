@@ -90,6 +90,9 @@ static bool copyMpd(MPDCli *src, MPDCli *dest, int seekms)
         return false;
     }
     MpdState st;
+    src->saveState(st, seekms);
+    LOGERR("copyMpd:" << st.status.externalvolumecontrol << endl);
+    LOGERR("copyMpd:" << st.status.onvolumechange << endl);
     return src->saveState(st, seekms) && dest->restoreState(st);
 }
 

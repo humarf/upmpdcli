@@ -19,7 +19,9 @@
 
 #include <regex.h>                      // for regex_t
 #include <string>                       // for string
+#include <cstdio>
 #include <vector>                       // for vector
+#include <memory>
 
 struct mpd_song;
 
@@ -83,6 +85,9 @@ public:
     // Synthetized fields
     int trackcounter;
     int detailscounter;
+    bool externalvolumecontrol;
+    std::string onvolumechange;
+    std::string getexternalvolume;
 };
 
 // Complete Mpd State
@@ -96,7 +101,9 @@ public:
     MPDCli(const std::string& host, int port = 6600, 
            const std::string& pass="", const std::string& m_onstart="",
            const std::string& m_onplay="", const std::string& m_onstop="",
-           const std::string& m_onvolumechange="");
+           const std::string& m_onvolumechange="", 
+	   const std::string& m_getexternalvolume="",
+	   bool externalvolumecontrol = false);
     ~MPDCli();
     bool ok() {return m_ok && m_conn;}
     bool setVolume(int ivol, bool isMute = false);
@@ -153,6 +160,8 @@ private:
     std::string m_onplay;
     std::string m_onstop;
     std::string m_onvolumechange;
+    std::string m_getexternalvolume;
+    bool m_externalvolumecontrol;
     regex_t m_tpuexpr;
     // addtagid command only exists for mpd 0.19 and later.
     bool m_have_addtagid; 

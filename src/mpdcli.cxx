@@ -21,10 +21,14 @@
 #include <stddef.h>                     // for NULL
 #include <unistd.h>
 #include <iostream>                     // for endl, etc
-
+#include <cstdio>
+#include <string>
+#include <memory>
 #include "libupnpp/log.hxx"             // for LOGDEB, LOGERR, LOGINF
 
 struct mpd_status;
+
+//bool volume_control_is_external = true;
 
 using namespace std;
 using namespace UPnPP;
@@ -34,13 +38,13 @@ using namespace UPnPP;
 MPDCli::MPDCli(const string& host, int port, const string& pass,
                const string& onstart, const string& onplay,
                const string& onstop, const string& onvolumechange,
-               const string& getexternalvolume, bool externalvolumecontrol)
+	       const string& getexternalvolume, bool externalvolumecontrol)
     : m_conn(0), m_ok(false), m_premutevolume(0), m_cachedvolume(50),
       m_host(host), m_port(port), m_password(pass), m_onstart(onstart),
       m_onplay(onplay), m_onstop(onstop), m_onvolumechange(onvolumechange),
       m_getexternalvolume(getexternalvolume), m_externalvolumecontrol(externalvolumecontrol),
       m_lastinsertid(-1), m_lastinsertpos(-1), m_lastinsertqvers(-1)
-{   
+{
     regcomp(&m_tpuexpr, "^[[:alpha:]]+://.+", REG_EXTENDED|REG_NOSUB);
     if (!openconn()) {
         return;
@@ -155,9 +159,24 @@ bool MPDCli::updStatus()
         return false;
     }
 
-    m_stat.volume = mpd_status_get_volume(mpds);
+    if (m_stat.externalvolumecontrol) {
+	//LOGDEB("MPDCli::fetching volume: " << m_getexternalvolume << endl);
+	std::shared_ptr<FILE> pipe(popen(m_stat.getexternalvolume.c_str(), "r"), pclose);
+    	if (!pipe) return "ERROR";
+    	char buffer[128];
+    	std::string result = "";
+    	while (!feof(pipe.get())) {
+        	if (fgets(buffer, 128, pipe.get()) != NULL)
+            	result += buffer;
+    	}
+	//LOGDEB("MPDCli::volume retrieved: " << result << endl);
+	m_stat.volume = atoi(result.c_str());
+    }
+    else {
+	m_stat.volume = mpd_status_get_volume(mpds);
+    }
     if (m_stat.volume >= 0) {
-        m_cachedvolume = m_stat.volume;
+	m_cachedvolume = m_stat.volume;
     } else {
         m_stat.volume = m_cachedvolume;
     }
@@ -292,12 +311,17 @@ bool MPDCli::restoreState(const MpdState& st)
     single(st.status.single);
     consume(st.status.consume);
     m_cachedvolume = st.status.volume;
-    mpd_run_set_volume(M_CONN, st.status.volume);
+    //set parameters for external volume control
+    m_stat.externalvolumecontrol = st.status.externalvolumecontrol;
+    m_stat.onvolumechange = st.status.onvolumechange;
+    m_stat.getexternalvolume = st.status.getexternalvolume;
+    //no need to set volume if it is controlled external
+    if (!(m_stat.externalvolumecontrol)) mpd_run_set_volume(M_CONN, st.status.volume);
     // If songelapsedms is set, we have to start playing to restore it
     if (st.status.songelapsedms > 0 ||
         st.status.state == MpdStatus::MPDS_PLAY) {
         play(st.status.songpos);
-        mpd_run_set_volume(M_CONN, st.status.volume);
+  	if (!(m_stat.externalvolumecontrol)) mpd_run_set_volume(M_CONN, st.status.volume);
         if (st.status.songelapsedms > 0)
             seek(st.status.songelapsedms/1000);
     }
@@ -401,6 +425,7 @@ bool MPDCli::setVolume(int volume, bool isMute)
 
     // ??MPD does not want to set the volume if not active.??
     // This does not seem to be the case with recent MPD versions
+    LOGINF("MPDCli::setVolume: " << m_stat.externalvolumecontrol << endl);
     if (!(m_stat.state == MpdStatus::MPDS_PLAY) &&
         !(m_stat.state == MpdStatus::MPDS_PAUSE)) {
         LOGDEB1("MPDCli::setVolume: not active" << endl);
@@ -433,16 +458,18 @@ bool MPDCli::setVolume(int volume, bool isMute)
     else if (volume > 100)
         volume = 100;
     
-    RETRY_CMD(mpd_run_set_volume(M_CONN, volume));
-    if (!m_onvolumechange.empty()) {
+    if (!(m_stat.externalvolumecontrol)) {
+    	RETRY_CMD(mpd_run_set_volume(M_CONN, volume));
+    }
+    if (!m_stat.onvolumechange.empty()) {
         char buf[256];
-        int n = snprintf(buf, sizeof buf, "%s %i", m_onvolumechange.c_str(),
+        int n = snprintf(buf, sizeof buf, "%s %i", m_stat.onvolumechange.c_str(),
                          volume);
-        if (!(n >= 0 && n < 256 && system(buf) != 0)) {
+	int m = system(buf);
+        if (!(n >= 0 && n < 256 && m == 0)) {
             // The command has not been completely written to the buffer or
             // the command has not run successfully.
-            LOGERR("MPDCli::setVolume: " << m_onvolumechange << " failed "
-                   << endl);
+            LOGDEB("MPDCli::setVolume: " << volume << endl);
         }
     }
     m_stat.volume = volume;
