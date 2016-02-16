@@ -33,12 +33,14 @@ using namespace UPnPP;
 
 MPDCli::MPDCli(const string& host, int port, const string& pass,
                const string& onstart, const string& onplay,
-               const string& onstop, const string& onvolumechange)
+               const string& onstop, const string& onvolumechange,
+               const string& getexternalvolume, bool externalvolumecontrol)
     : m_conn(0), m_ok(false), m_premutevolume(0), m_cachedvolume(50),
       m_host(host), m_port(port), m_password(pass), m_onstart(onstart),
       m_onplay(onplay), m_onstop(onstop), m_onvolumechange(onvolumechange),
+      m_getexternalvolume(getexternalvolume), m_externalvolumecontrol(externalvolumecontrol),
       m_lastinsertid(-1), m_lastinsertpos(-1), m_lastinsertqvers(-1)
-{
+{   
     regcomp(&m_tpuexpr, "^[[:alpha:]]+://.+", REG_EXTENDED|REG_NOSUB);
     if (!openconn()) {
         return;
@@ -47,6 +49,9 @@ MPDCli::MPDCli(const string& host, int port, const string& pass,
 
     m_ok = true;
     m_ok = updStatus();
+    m_stat.externalvolumecontrol = m_externalvolumecontrol;
+    m_stat.onvolumechange = m_onvolumechange;
+    m_stat.getexternalvolume = m_getexternalvolume;
 }
 
 MPDCli::~MPDCli()
